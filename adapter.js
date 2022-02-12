@@ -42,83 +42,67 @@
  * @property {boolean} ok
  */
 
-export default function (_env) {
+export default function(ddb) {
   /**
-   * @param {string} name
-   * @returns {Promise<Response>}
-   */
-  async function createDatabase(name) {}
-
-  /**
-   * @param {string} name
-   * @returns {Promise<Response>}
-   */
-  async function removeDatabase(name) {}
-
-  /**
-   * @param {CreateDocumentArgs}
-   * @returns {Promise<Response>}
-   */
-  async function createDocument({ db, id, doc }) {}
-
-  /**
-   * @param {RetrieveDocumentArgs}
-   * @returns {Promise<Response>}
-   */
-  async function retrieveDocument({ db, id }) {}
-
-  /**
-   * @param {CreateDocumentArgs}
-   * @returns {Promise<Response>}
-   */
-  async function updateDocument({ db, id, doc }) {}
-
-  /**
-   * @param {RetrieveDocumentArgs}
-   * @returns {Promise<Response>}
-   */
-  async function removeDocument({ db, id }) {}
-
-  /**
-   * @param {QueryDocumentsArgs}
-   * @returns {Promise<Response>}
-   */
-  async function queryDocuments({ db, query }) {}
-
-  /**
-   *
    * @param {IndexDocumentArgs}
    * @returns {Promise<Response>}
    */
+  async function index() {}
 
-  async function indexDocuments({ db, name, fields }) {}
+  /**
+   * @param {CreateStoreArgs}
+   * @returns {Promise<Response>}
+   */
+  async function createStore(name) {}
+
+  /**
+   * @param {DestroyStoreArgs}
+   * @returns {Promise<Response>}
+   */
+  async function destroyStore(name) {}
+
+  /**
+   * @param {CreateDocumentArgs}
+   * @returns {Promise<Response>}
+   */
+  async function createDoc({ store, key, value, ttl }) {}
+
+  /**
+   * @param {GetDocumentsArgs}
+   * @returns {Promise<Response>}
+   */
+  async function getDoc({ store, key }) {}
+
+  /**
+   *
+   * @param {UpdateDocumentArgs}
+   * @returns {Promise<Response>}
+   */
+
+  async function updateDoc({ store, key, value, ttl }) {}
+
+  /**
+   *
+   * @param {DeleteDocumentArgs}
+   * @returns {Promise<Response>}
+   */
+  async function deleteDoc({ store, key }) {}
 
   /**
    *
    * @param {ListDocumentArgs}
    * @returns {Promise<Response>}
    */
-  async function listDocuments(
-    { db, limit, startkey, endkey, keys, descending },
-  ) {}
-
-  /**
-   *
-   * @param {BulkDocumentsArgs}
-   * @returns {Promise<Response>}
-   */
-  async function bulkDocuments({ db, docs }) {}
+  async function listDocs({ store, pattern = "*" }) {}
 
   return Object.freeze({
-    createDatabase,
-    removeDatabase,
-    createDocument,
-    retrieveDocument,
-    updateDocument,
-    removeDocument,
-    queryDocuments,
-    indexDocuments,
-    listDocuments,
-    bulkDocuments,
+    index,
+    createStore,
+    destroyStore,
+    createDoc,
+    getDoc,
+    updateDoc,
+    deleteDoc,
+    listDocs
   });
 }

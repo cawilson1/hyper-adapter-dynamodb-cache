@@ -1,19 +1,15 @@
 # README
 
-hyper adapter template for `data` port, use this template to create a hyper
-adapter.
+hyper cache adapter using AWS DynamoDB as service
 
-Replace `{{ADAPTER_NAME}}` with your adapter name in `mod.js`
+## About
+
+This adapter uses single table design. All data for this adapter is stored in a single DynamoDB table with a partition key named "pk" and a sort key named "sk".
+The DynamoDB Table Name is defined as an environment variable, DynamoDbTable
+The store name passed from hyper to this adapter becomes the "pk"
+The key passed from hyper to this adapter becomes the "sk"
+Everything else is stored in normal document format.
 
 ## Testing
 
-run `./scripts/test.sh` to lint, check format, and run tests
-
-run `./scripts/harness.sh` to spin up a local instance of `hyper` using your
-adapter for the data port
-
-## TODO
-
-- Add automation to set adapter name
-- Add automation to set `port`
-- Add automation to scaffold adapter methods, based on selected `port`
+TODO
