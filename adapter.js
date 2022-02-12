@@ -1,6 +1,10 @@
 // deno-lint-ignore-file no-unused-vars
 import { TableName, LIST_STORES } from "./lib/constants.js";
-import { queryAll } from "./lib/queryHelpers.js";
+import {
+  queryAll,
+  beginsWithQuery,
+  endsWithQuery
+} from "./lib/queryHelpers.js";
 import { doBulkDelete } from "./lib/bulkHelpers.js";
 import { marshall, unmarshall, R } from "./deps.js";
 
@@ -19,7 +23,8 @@ const notOkUnprocessedItems = unprocessedItems => ({
 const getItem = prop("Item");
 const omitPkSk = tryCatch(omit(["pk", "sk"]), () => []); //remove partition key and sort key from response
 const unmarshallDoc = compose(omitPkSk, unmarshall);
-
+const unmarshallDocs = map(unmarshallDoc);
+const okDocs = docs => ({ ok: true, docs: unmarshallDocs(docs) });
 const _throw = e => {
   throw e;
 };
@@ -129,21 +134,65 @@ export default function(ddb) {
    * @returns {Promise<Response>}
    */
 
-  async function updateDoc({ store, key, value, ttl }) {}
+  async function updateDoc({ store, key, value, ttl }) {
+    return ddb
+      .putItem({
+        TableName,
+        Item: marshall({ ...value, pk: store, sk: key })
+      })
+      .then(ok)
+      .catch(notOk);
+  }
 
   /**
    *
    * @param {DeleteDocumentArgs}
    * @returns {Promise<Response>}
    */
-  async function deleteDoc({ store, key }) {}
+  async function deleteDoc({ store, key }) {
+    return (
+      ddb
+        //delete the item from the index list
+        .deleteItem({
+          TableName,
+          Item: marshall({
+            pk: store,
+            sk: key
+          })
+        })
+        .then(okDoc)
+        .catch(notOk)
+    );
+  }
 
   /**
    *
    * @param {ListDocumentArgs}
    * @returns {Promise<Response>}
    */
-  async function listDocs({ store, pattern = "*" }) {}
+  async function listDocs({ store, pattern = "*" }) {
+    const handleResponse = p => p.then(okDocs).catch(notOk);
+    const h = handleResponse;
+    const p = o => new Promise(res => res(o));
+    if (pattern.split("*").length > 2)
+      return p(notOk("only allowed one wildcard in pattern"));
+    if (pattern === "*") return queryAll({ ddb, db: name });
+    else if (!pattern.includes("*"))
+      return h(
+        ddb.getItem({
+          TableName,
+          Key: marshall({ pk: store, sk: key })
+        })
+      );
+    else if (pattern[0] === "*")
+      return h(beginsWithQuery({ ddb, db: name, matcher }));
+    else if (pattern[pattern.length - 1] === "*")
+      return h(endsWithQuery({ ddb, db: name, matcher }));
+    //must contain "*" not at beginning or end
+    else return h(matchAroundQuery({ ddb, db: name, matcher }));
+
+    //check middle, check exact match
+  }
 
   return Object.freeze({
     index,
