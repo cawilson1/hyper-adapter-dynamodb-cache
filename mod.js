@@ -9,6 +9,7 @@ const { awsAccessKeyId, awsSecretKey, region } = config();
 
 //check environment first
 //check .env file second
+//TODO: Make this all or nothing - either all from .env or all from system env
 const ddb = new ApiFactory({
   credentials: {
     awsAccessKeyId: env("awsAccessKeyId") || awsAccessKeyId,

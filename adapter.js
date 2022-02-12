@@ -1,65 +1,87 @@
 // deno-lint-ignore-file no-unused-vars
+import { TableName, LIST_STORES } from "./lib/constants.js";
+import { queryAll } from "./lib/queryHelpers.js";
+import { doBulkDelete } from "./lib/bulkHelpers.js";
+import { marshall, unmarshall } from "./deps.js";
 
-/**
- *
- * @typedef {Object} CreateDocumentArgs
- * @property {string} db
- * @property {string} id
- * @property {object} doc
- *
- * @typedef {Object} RetrieveDocumentArgs
- * @property {string} db
- * @property {string} id
- *
- * @typedef {Object} QueryDocumentsArgs
- * @property {string} db
- * @property {QueryArgs} query
- *
- * @typedef {Object} QueryArgs
- * @property {object} selector
- * @property {string[]} fields
- * @property {number} limit
- * @property {object[]} sort
- * @property {string} use_index
- *
- * @typedef {Object} IndexDocumentArgs
- * @property {string} db
- * @property {string} name
- * @property {string[]} fields
- *
- * @typedef {Object} ListDocumentArgs
- * @property {string} db
- * @property {number} limit
- * @property {string} startkey
- * @property {string} endkey
- * @property {string[]} keys
- *
- * @typedef {Object} BulkDocumentsArgs
- * @property {string} db
- * @property {object[]} docs
- *
- * @typedef {Object} Response
- * @property {boolean} ok
- */
+const ok = () => ({ ok: true });
+const okKeys = keys => ({ ok: true, keys });
+const notOk = error => ({ ok: false, error });
+const notOkUnprocessedItems = unprocessedItems => ({
+  ok: false,
+  error: "Some items failed to delete",
+  status: 500,
+  unprocessedItems: JSON.parse(unprocessedItems)
+});
+const _throw = e => {
+  throw e;
+};
 
 export default function(ddb) {
   /**
    * @param {IndexDocumentArgs}
    * @returns {Promise<Response>}
    */
-  async function index() {}
+  async function index() {
+    return queryAll({ ddb, db: LIST_STORES })
+      .then(unmarshall)
+      .catch(notOk);
+  }
 
   /**
    * @param {CreateStoreArgs}
    * @returns {Promise<Response>}
    */
-  async function createStore(name) {}
+  //All tables will be listed at the pk LIST_STORES, and the sk will be the table name used in the pk elsewhere. This allows simple index for all tables
+  async function createStore(name) {
+    //first check existence by querying LIST_STORES,name
+    return ddb
+      .putItem({
+        TableName,
+        Item: marshall({
+          dateTimeCreated: new Date().toISOString(),
+          pk: LIST_STORES,
+          sk: name
+        })
+      })
+      .then(ok)
+      .catch(notOk);
+  }
 
   /**
    * @param {DestroyStoreArgs}
    * @returns {Promise<Response>}
    */
-  async function destroyStore(name) {}
+  async function destroyStore(name) {
+    //first query all keys where pk = name
+    //next batch delete all keys returned
+    //if no unprocessed items returned, delete LIST_STORES pk storeName sk
+    //if there are unprocessed items, return their keys in message to caller
+    return queryAll({ ddb, db: name })
+      .then(items => doBulkDelete({ ddb, db: name, docs: items }))
+      .then(({ keys, unprocessedItems }) => {
+        if (isEmpty(unprocessedItems)) return keys;
+        _throw(JSON.stringify(unprocessedItems));
+      })
+      .then(keys => {
+        ddb
+          //delete the item from the index list
+          .deleteItem({
+            TableName,
+            Item: marshall({
+              pk: LIST_STORES,
+              sk: name
+            })
+          })
+          .then(() => keys)
+          .catch(error => {
+            console.log(error);
+            _throw(JSON.stringify({ [LIST_STORES]: name })); //something went wrong, assign this as unprocessItems
+          });
+      })
+      .then(okKeys)
+      .catch(notOkUnprocessedItems);
+  }
 
   /**
    * @param {CreateDocumentArgs}
