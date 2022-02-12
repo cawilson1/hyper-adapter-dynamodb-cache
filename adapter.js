@@ -2,10 +2,13 @@
 import { TableName, LIST_STORES } from "./lib/constants.js";
 import { queryAll } from "./lib/queryHelpers.js";
 import { doBulkDelete } from "./lib/bulkHelpers.js";
-import { marshall, unmarshall } from "./deps.js";
+import { marshall, unmarshall, R } from "./deps.js";
+
+const { isEmpty, prop, compose, omit, tryCatch, pipe } = R;
 
 const ok = () => ({ ok: true });
 const okKeys = keys => ({ ok: true, keys });
+const okDoc = doc => ({ ok: true, doc });
 const notOk = error => ({ ok: false, error });
 const notOkUnprocessedItems = unprocessedItems => ({
   ok: false,
@@ -13,6 +16,10 @@ const notOkUnprocessedItems = unprocessedItems => ({
   status: 500,
   unprocessedItems: JSON.parse(unprocessedItems)
 });
+const getItem = prop("Item");
+const omitPkSk = tryCatch(omit(["pk", "sk"]), () => []); //remove partition key and sort key from response
+const unmarshallDoc = compose(omitPkSk, unmarshall);
+
 const _throw = e => {
   throw e;
 };
@@ -87,13 +94,34 @@ export default function(ddb) {
    * @param {CreateDocumentArgs}
    * @returns {Promise<Response>}
    */
-  async function createDoc({ store, key, value, ttl }) {}
+  //TODO: use dynamodb's ttl if it is the time range is acceptable
+  async function createDoc({ store, key, value, ttl }) {
+    return isEmpty(value)
+      ? _throw("missing value")
+      : ddb
+          .putItem({
+            TableName,
+            Item: marshall({ ...value, pk: store, sk: key }),
+            ConditionExpression: "attribute_not_exists(#s)",
+            ExpressionAttributeNames: { "#s": "sk" }
+          })
+          .then(ok)
+          .catch(notOk);
+  }
 
   /**
    * @param {GetDocumentsArgs}
    * @returns {Promise<Response>}
    */
-  async function getDoc({ store, key }) {}
+  async function getDoc({ store, key }) {
+    return ddb
+      .getItem({
+        TableName,
+        Key: marshall({ pk: store, sk: key })
+      })
+      .then(pipe(getItem, unmarshallDoc, okDoc))
+      .catch(notOk);
+  }
 
   /**
    *
