@@ -8,26 +8,34 @@ import {
 import { doBulkDelete } from "./lib/bulkHelpers.js";
 import { marshall, unmarshall, R } from "./deps.js";
 
-const { isEmpty, prop, compose, omit, tryCatch, pipe } = R;
+const { isEmpty, map, prop, compose, omit, tryCatch, pipe } = R;
+const log = a => (console.log(a), a);
 
 const ok = () => ({ ok: true });
 const okKeys = keys => ({ ok: true, keys });
 const okDoc = doc => ({ ok: true, doc });
-const notOk = error => ({ ok: false, error });
-const notOkUnprocessedItems = unprocessedItems => ({
-  ok: false,
-  error: "Some items failed to delete",
-  status: 500,
-  unprocessedItems: JSON.parse(unprocessedItems)
-});
+const notOk = error => log({ ok: false, status: 500, msg: String(error) });
+const notOkDuplicate = () => log({ ok: false, status: 409 });
+const notOkUnprocessedItems = unprocessedItems =>
+  log({
+    ok: false,
+    error: "Some items failed to delete",
+    status: 500,
+    unprocessedItems
+  });
 const getItem = prop("Item");
 const omitPkSk = tryCatch(omit(["pk", "sk"]), () => []); //remove partition key and sort key from response
 const unmarshallDoc = compose(omitPkSk, unmarshall);
 const unmarshallDocs = map(unmarshallDoc);
 const okDocs = docs => ({ ok: true, docs: unmarshallDocs(docs) });
 const _throw = e => {
-  throw e;
+  throw log(e);
 };
+
+const checkDuplicateDocError = error =>
+  error?.message?.includes?.("ConditionalCheckFailed")
+    ? notOkDuplicate()
+    : notOk(error);
 
 export default function(ddb) {
   /**
@@ -39,7 +47,6 @@ export default function(ddb) {
       .then(unmarshall)
       .catch(notOk);
   }
-
   /**
    * @param {CreateStoreArgs}
    * @returns {Promise<Response>}
@@ -47,6 +54,7 @@ export default function(ddb) {
   //All tables will be listed at the pk LIST_STORES, and the sk will be the table name used in the pk elsewhere. This allows simple index for all tables
   async function createStore(name) {
     //first check existence by querying LIST_STORES,name
+    console.log("DOING CREATE STORE", ddb);
     return ddb
       .putItem({
         TableName,
@@ -54,10 +62,12 @@ export default function(ddb) {
           dateTimeCreated: new Date().toISOString(),
           pk: LIST_STORES,
           sk: name
-        })
+        }),
+        ConditionExpression: "attribute_not_exists(#s)",
+        ExpressionAttributeNames: { "#s": "sk" }
       })
       .then(ok)
-      .catch(notOk);
+      .catch(checkDuplicateDocError);
   }
 
   /**
@@ -70,29 +80,38 @@ export default function(ddb) {
     //if no unprocessed items returned, delete LIST_STORES pk storeName sk
     //if there are unprocessed items, return their keys in message to caller
     return queryAll({ ddb, db: name })
-      .then(items => doBulkDelete({ ddb, db: name, docs: items }))
-      .then(({ keys, unprocessedItems }) => {
-        if (isEmpty(unprocessedItems)) return keys;
-        _throw(JSON.stringify(unprocessedItems));
+      .then(items => {
+        console.log("QUERY RESPONSE", items, name);
+        return doBulkDelete({ ddb, db: name, docs: items });
       })
-      .then(keys => {
-        ddb
-          //delete the item from the index list
-          .deleteItem({
-            TableName,
-            Item: marshall({
-              pk: LIST_STORES,
-              sk: name
-            })
-          })
-          .then(() => keys)
-          .catch(error => {
-            console.log(error);
-            _throw(JSON.stringify({ [LIST_STORES]: name })); //something went wrong, assign this as unprocessItems
-          });
+      .then(({ keys, UnprocessedItems }) => {
+        console.log({ keys, UnprocessedItems });
+        if (isEmpty(UnprocessedItems)) return { ok: true, keys };
+        _throw({ ok: false, UnprocessedItems });
       })
+      .then(res =>
+        !res.ok
+          ? res
+          : ddb
+              //delete the item from the index list
+              .deleteItem({
+                TableName,
+                Key: marshall({
+                  pk: LIST_STORES,
+                  sk: name
+                })
+              })
+              .then(() => ({ ok: true, data: res.keys }))
+              .catch(error => {
+                console.log(error);
+                return { ok: false, error };
+              })
+      )
+      .then(res => (res.ok ? res.data : _throw(res.error)))
       .then(okKeys)
-      .catch(notOkUnprocessedItems);
+      .catch(error =>
+        error.UnprocessedItems ? notOkUnprocessedItems(error) : notOk(error)
+      );
   }
 
   /**
@@ -101,17 +120,28 @@ export default function(ddb) {
    */
   //TODO: use dynamodb's ttl if it is the time range is acceptable
   async function createDoc({ store, key, value, ttl }) {
-    return isEmpty(value)
-      ? _throw("missing value")
-      : ddb
-          .putItem({
-            TableName,
-            Item: marshall({ ...value, pk: store, sk: key }),
-            ConditionExpression: "attribute_not_exists(#s)",
-            ExpressionAttributeNames: { "#s": "sk" }
-          })
-          .then(ok)
-          .catch(notOk);
+    try {
+      const exists = await ddb.getItem({
+        TableName,
+        Key: marshall({ pk: LIST_STORES, sk: store })
+      });
+      if (!isEmpty(exists))
+        return isEmpty(value)
+          ? _throw("missing value")
+          : ddb
+              .putItem({
+                TableName,
+                Item: marshall({ value, pk: store, sk: key }),
+                ConditionExpression: "attribute_not_exists(#s)",
+                ExpressionAttributeNames: { "#s": "sk" }
+              })
+              .then(ok)
+              .catch(notOk);
+      else return notOk("No data store named " + store);
+    } catch (error) {
+      console.log(error);
+      return notOk(error);
+    }
   }
 
   /**

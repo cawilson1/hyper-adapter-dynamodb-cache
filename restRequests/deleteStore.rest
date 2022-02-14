@@ -1,0 +1,1 @@
+DELETE http://localhost:6363/cache/cachetest

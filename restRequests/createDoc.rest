@@ -1,0 +1,7 @@
+POST http://localhost:6363/cache/cachetest7
+content-type: application/json
+
+{
+    "key":"hey223",
+    "value":"wow"
+}
